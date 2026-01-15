@@ -1,0 +1,152 @@
+# OpenSSF Scorecard Gate
+#
+# This action checks each commit in a PR for OpenSSF Scorecard regressions.
+# It fails if any commit's score drops below the baseline (base commit).
+#
+# Testing locally:
+#   1. Install scorecard: gh release download v5.1.1 --repo ossf/scorecard \
+#        --pattern 'scorecard_*_linux_amd64.tar.gz' && tar xzf scorecard_*.tar.gz
+#   2. Create a test commit with an ELF binary: cp /usr/bin/true testbinary && git add testbinary && git commit -m test
+#   3. Run the check manually:
+#        INPUT_BASE_SHA=$(git rev-parse HEAD~1) INPUT_HEAD_SHA=$(git rev-parse HEAD) bash -c '
+#          baseline=$(scorecard --local=. --format=json | jq -r .score)
+#          git checkout HEAD~1; baseline_score=$(scorecard --local=. --format=json | jq -r .score)
+#          git checkout -; current_score=$(scorecard --local=. --format=json | jq -r .score)
+#          echo "Baseline: $baseline_score, Current: $current_score"
+#          [[ $(echo "$current_score < $baseline_score" | bc -l) -eq 1 ]] && echo "REGRESSION DETECTED"
+#        '
+#   4. Clean up: git reset --hard HEAD~1
+
+name: 'OpenSSF Scorecard Gate'
+description: 'Check for OpenSSF Scorecard regressions across commits'
+inputs:
+  base-sha:
+    description: 'Base commit SHA to compare against'
+    required: true
+  head-sha:
+    description: 'Head commit SHA'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install scorecard
+      shell: bash
+      run: |
+        set -euo pipefail
+        # renovate: datasource=github-releases depName=ossf/scorecard
+        VERSION=v5.1.1
+        ARCH=$(uname -m | sed 's/x86_64/amd64/')
+        TARBALL="scorecard_${VERSION#v}_linux_${ARCH}.tar.gz"
+        
+        gh release download "$VERSION" \
+          --repo ossf/scorecard \
+          --pattern "$TARBALL" \
+          --pattern "*checksums.txt"
+        
+        # Verify checksum
+        grep "$TARBALL" *checksums.txt | sha256sum -c -
+        
+        tar xzf "$TARBALL"
+        sudo mv scorecard /usr/local/bin/scorecard
+        rm -f "$TARBALL" *checksums.txt
+
+    - name: Check for regressions
+      shell: bash
+      env:
+        INPUT_BASE_SHA: ${{ inputs.base-sha }}
+        INPUT_HEAD_SHA: ${{ inputs.head-sha }}
+      run: |
+        set -euo pipefail
+        
+        # Validate SHA format (40 hex chars) - prevents injection attacks
+        validate_sha() {
+          local sha="$1" name="$2"
+          if ! [[ "$sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::$name must be a 40-character hex SHA, got: $sha"
+            exit 1
+          fi
+        }
+        
+        validate_sha "$INPUT_BASE_SHA" "base-sha"
+        validate_sha "$INPUT_HEAD_SHA" "head-sha"
+        
+        # Format checks as a markdown table row
+        format_checks_table() {
+          local json="$1"
+          echo "$json" | jq -r '.checks[] | "| \(.name) | \(.score)/10 | \(.reason) |"'
+        }
+        
+        get_score() {
+          git checkout --quiet "$1"
+          scorecard --local=. --format=json 2>/dev/null | jq -r '.score // -1'
+        }
+        
+        baseline=$(get_score "$INPUT_BASE_SHA")
+        echo "Baseline score (${INPUT_BASE_SHA:0:7}): $baseline/10"
+        
+        mapfile -t commits < <(git rev-list --reverse "$INPUT_BASE_SHA".."$INPUT_HEAD_SHA")
+        if [[ ${#commits[@]} -eq 0 ]]; then
+          echo "No commits to check"
+          exit 0
+        fi
+        
+        # Start job summary
+        {
+          echo "## OpenSSF Scorecard Results"
+          echo ""
+          echo "**Baseline (${INPUT_BASE_SHA:0:7}):** $baseline/10"
+          echo ""
+        } >> "$GITHUB_STEP_SUMMARY"
+        
+        failed=0
+        final_score=""
+        final_result=""
+        
+        for commit in "${commits[@]}"; do
+          short=${commit:0:7}
+          git checkout --quiet "$commit"
+          result=$(scorecard --local=. --format=json --show-details 2>/dev/null)
+          score=$(echo "$result" | jq -r '.score // -1')
+          final_score="$score"
+          final_result="$result"
+          
+          if [[ "$score" == "-1" ]]; then
+            echo "$short: unable to calculate score"
+          elif jq -ne "$score < $baseline" >/dev/null 2>&1; then
+            echo "::error::$short: score regressed to $score from $baseline"
+            echo ""
+            echo "Checks with issues:"
+            echo "$result" | jq -r '.checks[] | select(.score < 10) | "  \(.name): \(.score)/10 - \(.reason)"'
+            
+            # Add regression to summary
+            {
+              echo "### :x: Regression at $short"
+              echo ""
+              echo "Score dropped from **$baseline** to **$score**"
+              echo ""
+            } >> "$GITHUB_STEP_SUMMARY"
+            
+            failed=1
+          else
+            echo "$short: $score/10"
+          fi
+        done
+        
+        # Add final scorecard details to summary
+        {
+          echo "### Final Score (${INPUT_HEAD_SHA:0:7}): $final_score/10"
+          echo ""
+          echo "| Check | Score | Details |"
+          echo "|-------|-------|---------|"
+          format_checks_table "$final_result"
+          echo ""
+          if [[ $failed -eq 0 ]]; then
+            echo ":white_check_mark: **No regressions detected**"
+          else
+            echo ":x: **Regression detected - score must not decrease**"
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
+        
+        git checkout --quiet "$INPUT_HEAD_SHA"
+        exit $failed
