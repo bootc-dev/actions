@@ -85,7 +85,7 @@ runs:
         
         get_score() {
           git checkout --quiet "$1"
-          scorecard --local=. --format=json 2>/dev/null | jq -r '.score // -1'
+          scorecard --local=. --format=json | jq -r '.score // -1'
         }
         
         baseline=$(get_score "$INPUT_BASE_SHA")
@@ -112,7 +112,7 @@ runs:
         for commit in "${commits[@]}"; do
           short=${commit:0:7}
           git checkout --quiet "$commit"
-          result=$(scorecard --local=. --format=json --show-details 2>/dev/null)
+          result=$(scorecard --local=. --format=json --show-details)
           score=$(echo "$result" | jq -r '.score // -1')
           final_score="$score"
           final_result="$result"
