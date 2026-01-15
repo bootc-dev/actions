@@ -26,12 +26,18 @@ inputs:
   head-sha:
     description: 'Head commit SHA'
     required: true
+  token:
+    description: 'GitHub token for API access (e.g., downloading scorecard)'
+    default: ${{ github.token }}
+    required: false
 
 runs:
   using: 'composite'
   steps:
     - name: Install scorecard
       shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
       run: |
         set -euo pipefail
         # renovate: datasource=github-releases depName=ossf/scorecard
