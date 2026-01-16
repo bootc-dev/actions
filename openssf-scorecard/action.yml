@@ -41,7 +41,7 @@ runs:
       run: |
         set -euo pipefail
         # renovate: datasource=github-releases depName=ossf/scorecard
-        VERSION=v5.1.1
+        VERSION=v5.4.0
         ARCH=$(uname -m | sed 's/x86_64/amd64/')
         TARBALL="scorecard_${VERSION#v}_linux_${ARCH}.tar.gz"
         
