@@ -1,16 +1,21 @@
 # OpenSSF Scorecard Gate
 #
 # This action checks each commit in a PR for OpenSSF Scorecard regressions.
-# It fails if any commit's score drops below the baseline (base commit).
+# It fails if any commit's score drops below the baseline (merge base commit).
+#
+# The baseline is computed as the merge base between base-sha and head-sha,
+# which represents where the PR branched from the target branch. This ensures
+# that improvements to the target branch after the PR was created don't cause
+# false failures - we only check if the PR itself introduces regressions.
 #
 # Testing locally:
 #   1. Install scorecard: gh release download v5.1.1 --repo ossf/scorecard \
 #        --pattern 'scorecard_*_linux_amd64.tar.gz' && tar xzf scorecard_*.tar.gz
 #   2. Create a test commit with an ELF binary: cp /usr/bin/true testbinary && git add testbinary && git commit -m test
 #   3. Run the check manually:
-#        INPUT_BASE_SHA=$(git rev-parse HEAD~1) INPUT_HEAD_SHA=$(git rev-parse HEAD) bash -c '
-#          baseline=$(scorecard --local=. --format=json | jq -r .score)
-#          git checkout HEAD~1; baseline_score=$(scorecard --local=. --format=json | jq -r .score)
+#        MERGE_BASE=$(git merge-base main HEAD)
+#        INPUT_HEAD_SHA=$(git rev-parse HEAD) bash -c '
+#          git checkout $MERGE_BASE; baseline_score=$(scorecard --local=. --format=json | jq -r .score)
 #          git checkout -; current_score=$(scorecard --local=. --format=json | jq -r .score)
 #          echo "Baseline: $baseline_score, Current: $current_score"
 #          [[ $(echo "$current_score < $baseline_score" | bc -l) -eq 1 ]] && echo "REGRESSION DETECTED"
@@ -21,10 +26,10 @@ name: 'OpenSSF Scorecard Gate'
 description: 'Check for OpenSSF Scorecard regressions across commits'
 inputs:
   base-sha:
-    description: 'Base commit SHA to compare against'
+    description: 'Base branch tip SHA (used to compute merge base with head-sha)'
     required: true
   head-sha:
-    description: 'Head commit SHA'
+    description: 'Head commit SHA (PR tip)'
     required: true
   token:
     description: 'GitHub token for API access (e.g., downloading scorecard)'
@@ -77,6 +82,13 @@ runs:
         validate_sha "$INPUT_BASE_SHA" "base-sha"
         validate_sha "$INPUT_HEAD_SHA" "head-sha"
         
+        # Compute merge base - the point where the PR branched from the base branch.
+        # This is the correct baseline because:
+        # 1. It doesn't change when the base branch advances
+        # 2. It answers "did this PR introduce regressions?" not "is this PR as good as current main?"
+        MERGE_BASE=$(git merge-base "$INPUT_BASE_SHA" "$INPUT_HEAD_SHA" | head -n 1)
+        echo "Merge base: ${MERGE_BASE:0:7} (between base ${INPUT_BASE_SHA:0:7} and head ${INPUT_HEAD_SHA:0:7})"
+        
         # Format checks as a markdown table row
         format_checks_table() {
           local json="$1"
@@ -88,10 +100,10 @@ runs:
           scorecard --local=. --format=json | jq -r '.score // -1'
         }
         
-        baseline=$(get_score "$INPUT_BASE_SHA")
-        echo "Baseline score (${INPUT_BASE_SHA:0:7}): $baseline/10"
+        baseline=$(get_score "$MERGE_BASE")
+        echo "Baseline score (${MERGE_BASE:0:7}): $baseline/10"
         
-        mapfile -t commits < <(git rev-list --reverse "$INPUT_BASE_SHA".."$INPUT_HEAD_SHA")
+        mapfile -t commits < <(git rev-list --reverse "$MERGE_BASE".."$INPUT_HEAD_SHA")
         if [[ ${#commits[@]} -eq 0 ]]; then
           echo "No commits to check"
           exit 0
@@ -101,7 +113,7 @@ runs:
         {
           echo "## OpenSSF Scorecard Results"
           echo ""
-          echo "**Baseline (${INPUT_BASE_SHA:0:7}):** $baseline/10"
+          echo "**Baseline (merge base ${MERGE_BASE:0:7}):** $baseline/10"
           echo ""
         } >> "$GITHUB_STEP_SUMMARY"
         
