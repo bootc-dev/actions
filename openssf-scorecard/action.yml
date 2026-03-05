@@ -96,7 +96,7 @@ runs:
         }
         
         get_score() {
-          git checkout --quiet "$1"
+          git checkout --force --quiet "$1"
           scorecard --local=. --format=json | jq -r '.score // -1'
         }
         
@@ -123,7 +123,7 @@ runs:
         
         for commit in "${commits[@]}"; do
           short=${commit:0:7}
-          git checkout --quiet "$commit"
+          git checkout --force --quiet "$commit"
           result=$(scorecard --local=. --format=json --show-details)
           score=$(echo "$result" | jq -r '.score // -1')
           final_score="$score"
@@ -166,5 +166,5 @@ runs:
           fi
         } >> "$GITHUB_STEP_SUMMARY"
         
-        git checkout --quiet "$INPUT_HEAD_SHA"
+        git checkout --force --quiet "$INPUT_HEAD_SHA"
         exit $failed
