@@ -1,0 +1,85 @@
+name: 'Discover Repositories'
+description: 'Discover repositories across multiple GitHub organizations for matrix workflows'
+inputs:
+  orgs:
+    description: 'JSON array of organizations to scan, e.g. ["bootc-dev", "composefs"]'
+    required: true
+  tokens:
+    description: 'JSON object mapping org names to tokens, e.g. {"bootc-dev": "${{ token1 }}", "composefs": "${{ token2 }}"}'
+    required: true
+  test-mode:
+    description: 'When true, only return ci-sandbox from the first org'
+    required: false
+    default: 'false'
+  exclude-self:
+    description: 'When true, exclude the calling repository from results'
+    required: false
+    default: 'false'
+outputs:
+  matrix:
+    description: 'JSON array of repositories with repo, full_name, and owner fields'
+    value: ${{ steps.discover.outputs.matrix }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Discover repositories
+      id: discover
+      uses: actions/github-script@v8
+      env:
+        ORGS_JSON: ${{ inputs.orgs }}
+        TOKENS_JSON: ${{ inputs.tokens }}
+        TEST_MODE: ${{ inputs.test-mode }}
+        EXCLUDE_SELF: ${{ inputs.exclude-self }}
+      with:
+        script: |
+          const { getOctokit } = require('@actions/github');
+
+          const orgs = JSON.parse(process.env.ORGS_JSON);
+          const tokens = JSON.parse(process.env.TOKENS_JSON);
+          const testMode = process.env.TEST_MODE === 'true';
+          const excludeSelf = process.env.EXCLUDE_SELF === 'true';
+
+          // Early exit for test mode - only query first org for ci-sandbox
+          if (testMode && orgs.length > 0) {
+            console.log('Test mode enabled - only returning ci-sandbox');
+            const firstOrg = orgs[0];
+            const result = [{ repo: 'ci-sandbox', full_name: `${firstOrg}/ci-sandbox`, owner: firstOrg }];
+            core.setOutput('matrix', JSON.stringify(result));
+            return;
+          }
+
+          // Discover repos from all organizations
+          const repoLists = await Promise.all(
+            orgs
+              .filter(orgName => {
+                if (!tokens[orgName]) {
+                  core.warning(`No token provided for org ${orgName}, skipping`);
+                  return false;
+                }
+                return true;
+              })
+              .map(async orgName => {
+                const octokit = getOctokit(tokens[orgName]);
+                const repos = await octokit.paginate(octokit.rest.repos.listForOrg, {
+                  org: orgName,
+                  type: 'all',
+                  per_page: 100
+                });
+
+                return repos
+                  .filter(repo =>
+                    !repo.archived &&
+                    !repo.name.startsWith('.') &&
+                    !(excludeSelf && orgName === context.repo.owner && repo.name === context.repo.repo)
+                  )
+                  .map(repo => ({
+                    repo: repo.name,
+                    full_name: repo.full_name,
+                    owner: orgName
+                  }));
+              })
+          );
+
+          const allRepos = repoLists.flat();
+          console.log('Discovered repositories:', allRepos);
+          core.setOutput('matrix', JSON.stringify(allRepos));
