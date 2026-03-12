@@ -5,7 +5,7 @@ inputs:
     description: 'JSON array of organizations to scan, e.g. ["bootc-dev", "composefs"]'
     required: true
   tokens:
-    description: 'JSON object mapping org names to tokens, e.g. {"bootc-dev": "${{ token1 }}", "composefs": "${{ token2 }}"}'
+    description: 'JSON object mapping org names to tokens, e.g. {"bootc-dev": "TOKEN1", "composefs": "TOKEN2"}'
     required: true
   test-mode:
     description: 'When true, only return ci-sandbox from the first org'
