@@ -32,8 +32,6 @@ runs:
         EXCLUDE_SELF: ${{ inputs.exclude-self }}
       with:
         script: |
-          const { getOctokit } = require('@actions/github');
-
           const orgs = JSON.parse(process.env.ORGS_JSON);
           const tokens = JSON.parse(process.env.TOKENS_JSON);
           const testMode = process.env.TEST_MODE === 'true';
@@ -59,7 +57,10 @@ runs:
                 return true;
               })
               .map(async orgName => {
-                const octokit = getOctokit(tokens[orgName]);
+                // Create a new Octokit instance for each org's token.
+                // Use github.constructor rather than require('@actions/github')
+                // since the latter isn't resolvable inside github-script's runtime.
+                const octokit = new github.constructor({ auth: tokens[orgName] });
                 const repos = await octokit.paginate(octokit.rest.repos.listForOrg, {
                   org: orgName,
                   type: 'all',
