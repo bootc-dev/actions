@@ -1,0 +1,62 @@
+name: Test discover-repos
+on:
+  pull_request:
+    paths:
+      - 'discover-repos/**'
+      - '.github/workflows/test-discover-repos.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'discover-repos/**'
+      - '.github/workflows/test-discover-repos.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test-mode:
+    name: Test mode (no API calls)
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.discover.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run discover-repos in test mode
+        id: discover
+        uses: ./discover-repos
+        with:
+          orgs: '["bootc-dev"]'
+          tokens: '{"bootc-dev": "unused-in-test-mode"}'
+          test-mode: 'true'
+
+      - name: Validate output
+        uses: actions/github-script@v8
+        env:
+          MATRIX_JSON: ${{ steps.discover.outputs.matrix }}
+        with:
+          script: |
+            const matrix = JSON.parse(process.env.MATRIX_JSON);
+            console.log('Matrix output:', JSON.stringify(matrix, null, 2));
+
+            if (!Array.isArray(matrix)) {
+              throw new Error('Expected matrix to be an array');
+            }
+            if (matrix.length !== 1) {
+              throw new Error(`Expected 1 entry, got ${matrix.length}`);
+            }
+
+            const entry = matrix[0];
+            if (entry.repo !== 'ci-sandbox') {
+              throw new Error(`Expected repo 'ci-sandbox', got '${entry.repo}'`);
+            }
+            if (entry.full_name !== 'bootc-dev/ci-sandbox') {
+              throw new Error(`Expected full_name 'bootc-dev/ci-sandbox', got '${entry.full_name}'`);
+            }
+            if (entry.owner !== 'bootc-dev') {
+              throw new Error(`Expected owner 'bootc-dev', got '${entry.owner}'`);
+            }
+
+            console.log('All assertions passed');
