@@ -35,6 +35,19 @@ inputs:
     description: 'GitHub token for API access (e.g., downloading scorecard)'
     default: ${{ github.token }}
     required: false
+  checks:
+    description: >
+      Comma-separated list of checks to run (passed to scorecard --checks).
+      Defaults to a curated set that makes sense for local regression gating,
+      omitting Pinned-Dependencies (we use version tags + Renovate) and
+      Token-Permissions (legitimate use in gated workflows).
+    required: false
+    default: >-
+      Binary-Artifacts,
+      Dangerous-Workflow,
+      License,
+      Security-Policy,
+      SAST
 
 runs:
   using: 'composite'
@@ -67,6 +80,7 @@ runs:
       env:
         INPUT_BASE_SHA: ${{ inputs.base-sha }}
         INPUT_HEAD_SHA: ${{ inputs.head-sha }}
+        INPUT_CHECKS: ${{ inputs.checks }}
       run: |
         set -euo pipefail
         
@@ -81,6 +95,11 @@ runs:
         
         validate_sha "$INPUT_BASE_SHA" "base-sha"
         validate_sha "$INPUT_HEAD_SHA" "head-sha"
+        
+        # Build --checks flag from the input (strip whitespace from YAML folding)
+        CHECKS=$(echo "${INPUT_CHECKS}" | tr -d '[:space:]')
+        SCORECARD_ARGS=(--checks="${CHECKS}")
+        echo "Running checks: ${CHECKS}"
         
         # Compute merge base - the point where the PR branched from the base branch.
         # This is the correct baseline because:
@@ -97,7 +116,7 @@ runs:
         
         get_score() {
           git checkout --force --quiet "$1"
-          scorecard --local=. --format=json | jq -r '.score // -1'
+          scorecard --local=. --format=json "${SCORECARD_ARGS[@]}" | jq -r '.score // -1'
         }
         
         baseline=$(get_score "$MERGE_BASE")
@@ -124,7 +143,7 @@ runs:
         for commit in "${commits[@]}"; do
           short=${commit:0:7}
           git checkout --force --quiet "$commit"
-          result=$(scorecard --local=. --format=json --show-details)
+          result=$(scorecard --local=. --format=json --show-details "${SCORECARD_ARGS[@]}")
           score=$(echo "$result" | jq -r '.score // -1')
           final_score="$score"
           final_result="$result"
