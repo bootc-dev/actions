@@ -1,0 +1,183 @@
+# Assemble per-architecture images (pushed by build-push-image) into a
+# multi-arch manifest list and push it with the desired tags.
+#
+# Prerequisites:
+#   Use bootc-dev/actions/bootc-ubuntu-setup first to get an up-to-date
+#   podman.  The version shipped with ubuntu-24.04 is too old and has
+#   known bugs with manifest handling.
+#
+# This action downloads the digest artifacts produced by build-push-image,
+# creates a podman manifest with correct per-arch metadata, and pushes it
+# for each tag derived from docker/metadata-action (or supplied manually).
+#
+# Typical usage (runs after a matrix of build-push-image jobs):
+#
+#   manifest:
+#     needs: build
+#     runs-on: ubuntu-24.04
+#     steps:
+#       - uses: bootc-dev/actions/bootc-ubuntu-setup@main
+#       - uses: docker/metadata-action@v5
+#         id: meta
+#         with:
+#           images: ghcr.io/${{ github.repository }}
+#           tags: |
+#             type=raw,value=latest,enable={{is_default_branch}}
+#             type=sha,prefix={{branch}}-,format=short
+#       - uses: bootc-dev/actions/create-manifest@main
+#         with:
+#           image: ghcr.io/${{ github.repository }}
+#           tags: ${{ steps.meta.outputs.tags }}
+#
+name: 'Create Multi-Arch Manifest'
+description: 'Assemble per-arch images into a multi-arch manifest and push'
+inputs:
+  image:
+    description: 'Full registry image name without tag (must match build-push-image)'
+    required: true
+  tags:
+    description: >
+      Newline-separated list of fully qualified image tags to push
+      (e.g. output of docker/metadata-action).
+    required: true
+  labels:
+    description: >
+      Newline-separated list of OCI annotations to apply to the manifest index
+      (e.g. output of docker/metadata-action labels).  Format: key=value.
+    required: false
+    default: ''
+  artifact-pattern:
+    description: 'Download artifact name pattern (must match build-push-image output)'
+    required: false
+    default: 'container-digests-*'
+  cosign-key:
+    description: 'Cosign private key for signing (leave empty to skip signing)'
+    required: false
+    default: ''
+  cosign-password:
+    description: 'Password for the cosign private key (if encrypted)'
+    required: false
+    default: ''
+  registry-login-env:
+    description: >
+      Set to "true" if you have already logged in to the registry.
+      Otherwise the action will attempt to log in using GITHUB_TOKEN.
+    required: false
+    default: 'false'
+outputs:
+  digest:
+    description: 'Digest of the pushed manifest'
+    value: ${{ steps.push-manifest.outputs.digest }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Download digest artifacts
+      uses: actions/download-artifact@v8
+      with:
+        path: ${{ runner.temp }}/digests
+        pattern: ${{ inputs.artifact-pattern }}
+        merge-multiple: true
+
+    - name: Login to GHCR
+      if: inputs.registry-login-env == 'false'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        LOGIN_USER: ${{ github.actor }}
+        REGISTRY: ${{ inputs.image }}
+      run: |
+        set -euo pipefail
+        registry_host="${REGISTRY%%/*}"
+        echo "${GITHUB_TOKEN}" | podman login -u "${LOGIN_USER}" --password-stdin "${registry_host}"
+        # Cosign uses the Docker credential store for pushing signatures
+        echo "${GITHUB_TOKEN}" | docker login -u "${LOGIN_USER}" --password-stdin "${registry_host}"
+
+    - name: Create and push manifest
+      id: push-manifest
+      uses: actions/github-script@v7
+      env:
+        IMAGE: ${{ inputs.image }}
+        TAGS: ${{ inputs.tags }}
+        LABELS: ${{ inputs.labels }}
+        DIGEST_DIR: ${{ runner.temp }}/digests
+        RUNNER_TEMP: ${{ runner.temp }}
+      with:
+        script: |
+          const { execFileSync } = require('child_process');
+          const fs = require('fs');
+          const path = require('path');
+
+          const image = process.env.IMAGE;
+          const digestDir = process.env.DIGEST_DIR;
+
+          // Read per-arch digest files (each named by arch, containing the digest)
+          const entries = fs.readdirSync(digestDir)
+            .filter(f => fs.statSync(path.join(digestDir, f)).isFile())
+            .map(arch => ({
+              arch,
+              digest: fs.readFileSync(path.join(digestDir, arch), 'utf8').trim()
+            }));
+
+          if (entries.length === 0) {
+            core.setFailed(`No digest artifacts found in ${digestDir}`);
+            return;
+          }
+          core.info(`Found ${entries.length} architecture(s): ${entries.map(e => e.arch).join(', ')}`);
+
+          const tags = process.env.TAGS.split('\n').map(t => t.trim()).filter(Boolean);
+          const labels = process.env.LABELS.split('\n').map(l => l.trim()).filter(Boolean);
+
+          const digestfile = path.join(process.env.RUNNER_TEMP, 'manifest-digestfile');
+          const manifestName = `localhost/manifest-tmp:${Date.now()}`;
+
+          // Build the manifest once, then push to each tag
+          core.info(`Creating manifest: ${manifestName}`);
+          execFileSync('podman', ['manifest', 'create', manifestName], { stdio: 'inherit' });
+
+          let lastDigest = '';
+          try {
+            for (const { arch, digest } of entries) {
+              core.info(`  Adding ${arch}: ${digest}`);
+              execFileSync('podman', [
+                'manifest', 'add', '--arch', arch, manifestName, `${image}@${digest}`
+              ], { stdio: 'inherit' });
+            }
+
+            for (const label of labels) {
+              execFileSync('podman', [
+                'manifest', 'annotate', '--index', '--annotation', label, manifestName
+              ], { stdio: 'inherit' });
+            }
+
+            for (const tag of tags) {
+              core.info(`Pushing manifest as ${tag}`);
+              execFileSync('podman', [
+                'manifest', 'push', '--all', '--digestfile', digestfile, manifestName, tag
+              ], { stdio: 'inherit' });
+              lastDigest = fs.readFileSync(digestfile, 'utf8').trim();
+            }
+          } finally {
+            execFileSync('podman', ['manifest', 'rm', manifestName], { stdio: 'inherit' });
+          }
+
+          if (!lastDigest) {
+            core.setFailed('Failed to determine manifest digest');
+            return;
+          }
+          core.setOutput('digest', lastDigest);
+
+    - name: Install Cosign
+      if: inputs.cosign-key != ''
+      uses: sigstore/cosign-installer@v3
+
+    - name: Sign manifest
+      if: inputs.cosign-key != ''
+      shell: bash
+      env:
+        COSIGN_PRIVATE_KEY: ${{ inputs.cosign-key }}
+        COSIGN_PASSWORD: ${{ inputs.cosign-password }}
+        IMAGE: ${{ inputs.image }}
+        DIGEST: ${{ steps.push-manifest.outputs.digest }}
+      run: |
+        set -euo pipefail
+        cosign sign -y --key env://COSIGN_PRIVATE_KEY "${IMAGE}@${DIGEST}"

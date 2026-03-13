@@ -1,0 +1,100 @@
+# End-to-end integration test for build-push-image + create-manifest.
+#
+# This workflow pushes real container images to GHCR, so it requires
+# packages:write.  It is gated behind a label or manual dispatch to
+# avoid granting elevated permissions on every PR or push.
+#
+# OpenSSF Scorecard note: packages:write is intentionally scoped to
+# this workflow only, and the workflow only runs when explicitly
+# requested via label or workflow_dispatch.  The push and manifest
+# jobs need write access to verify the full build-push-manifest
+# pipeline against a real registry.
+name: Test container build (integration)
+on:
+  pull_request:
+    types: [labeled, synchronize]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  # Build on two arches and push by digest
+  build:
+    name: Build (${{ matrix.arch }})
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'test-integration')
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup host
+        uses: ./bootc-ubuntu-setup
+
+      - name: Create test Containerfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/test-ctx
+          echo 'FROM docker.io/library/alpine:latest' > /tmp/test-ctx/Containerfile
+          echo 'RUN echo hello > /hello.txt' >> /tmp/test-ctx/Containerfile
+
+      - name: Build and push
+        uses: ./build-push-image
+        with:
+          image: ghcr.io/${{ github.repository }}/integration-test
+          arch: ${{ matrix.arch }}
+          containerfile: /tmp/test-ctx/Containerfile
+          context: /tmp/test-ctx
+
+  # Assemble multi-arch manifest and verify
+  manifest:
+    name: Create manifest
+    needs: build
+    permissions:
+      contents: read
+      packages: write
+      id-token: write  # for cosign signing
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup host
+        uses: ./bootc-ubuntu-setup
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/integration-test
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - name: Create and push manifest
+        uses: ./create-manifest
+        with:
+          image: ghcr.io/${{ github.repository }}/integration-test
+          tags: ${{ steps.meta.outputs.tags }}
+
+      - name: Verify manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          podman manifest inspect ghcr.io/${{ github.repository }}/integration-test:latest
+          arch_count=$(podman manifest inspect ghcr.io/${{ github.repository }}/integration-test:latest | jq '.manifests | length')
+          test "${arch_count}" -eq 2

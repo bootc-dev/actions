@@ -54,3 +54,79 @@ jobs:
         with:
           base-sha: ${{ github.event.pull_request.base.sha }}
           head-sha: ${{ github.sha }}
+
+  test-build-push-image:
+    name: Test build-push-image (build only)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup host
+        uses: ./bootc-ubuntu-setup
+
+      - name: Create test Containerfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/test-ctx
+          echo 'FROM docker.io/library/alpine:latest' > /tmp/test-ctx/Containerfile
+          echo 'RUN echo hello > /hello.txt' >> /tmp/test-ctx/Containerfile
+
+      - name: Run build-push-image (push=false)
+        id: build
+        uses: ./build-push-image
+        with:
+          image: ghcr.io/bootc-dev/actions-test
+          arch: amd64
+          containerfile: /tmp/test-ctx/Containerfile
+          context: /tmp/test-ctx
+          push: 'false'
+
+      - name: Verify image was built
+        shell: bash
+        env:
+          LOCAL_IMAGE: ${{ steps.build.outputs.local-image }}
+        run: |
+          set -euo pipefail
+          test -n "${LOCAL_IMAGE}"
+          podman inspect "${LOCAL_IMAGE}"
+          result="$(podman run --rm "${LOCAL_IMAGE}" cat /hello.txt)"
+          test "${result}" = "hello"
+
+  test-build-push-image-local:
+    name: Test build-push-image with local-image
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup host
+        uses: ./bootc-ubuntu-setup
+
+      - name: Build image manually
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'FROM docker.io/library/alpine:latest' > /tmp/Containerfile
+          echo 'RUN echo custom > /custom.txt' >> /tmp/Containerfile
+          podman build -t localhost/my-custom-image:latest -f /tmp/Containerfile /tmp
+
+      - name: Run build-push-image with pre-built image (push=false)
+        id: build
+        uses: ./build-push-image
+        with:
+          image: ghcr.io/bootc-dev/actions-test
+          arch: amd64
+          local-image: localhost/my-custom-image:latest
+          push: 'false'
+
+      - name: Verify correct image was used
+        shell: bash
+        env:
+          LOCAL_IMAGE: ${{ steps.build.outputs.local-image }}
+        run: |
+          set -euo pipefail
+          test "${LOCAL_IMAGE}" = "localhost/my-custom-image:latest"
+          result="$(podman run --rm "${LOCAL_IMAGE}" cat /custom.txt)"
+          test "${result}" = "custom"

@@ -1,0 +1,179 @@
+# Build a container image for a single architecture and push by digest to a
+# registry.  Designed to run inside a matrix strategy that fans out over
+# architectures; a companion `create-manifest` action assembles the per-arch
+# images into a multi-arch manifest list afterwards.
+#
+# Prerequisites:
+#   Use bootc-dev/actions/bootc-ubuntu-setup first to get an up-to-date
+#   podman.  The version shipped with ubuntu-24.04 is too old and has
+#   known bugs with manifest handling and push-by-digest.
+#
+# The runner's native architecture must match the `arch` input — this action
+# does not do cross-compilation.  Use a matrix like:
+#
+#   strategy:
+#     matrix:
+#       arch: [amd64, arm64]
+#       include:
+#         - arch: amd64
+#           runner: ubuntu-24.04
+#         - arch: arm64
+#           runner: ubuntu-24.04-arm
+#   runs-on: ${{ matrix.runner }}
+#   steps:
+#     - uses: actions/checkout@v6
+#     - uses: bootc-dev/actions/bootc-ubuntu-setup@main
+#     - uses: bootc-dev/actions/build-push-image@main
+#       with:
+#         image: ghcr.io/${{ github.repository }}
+#         arch: ${{ matrix.arch }}
+#
+name: 'Build and Push Image'
+description: 'Build a container image for one architecture and push it by digest'
+inputs:
+  image:
+    description: 'Full registry image name without tag (e.g. ghcr.io/org/repo)'
+    required: true
+  arch:
+    description: >
+      Architecture label for this build (e.g. amd64, arm64).  Used for artifact
+      naming and manifest assembly — the runner must be the matching native arch.
+    required: true
+  containerfile:
+    description: 'Path to the Containerfile/Dockerfile'
+    required: false
+    default: './Containerfile'
+  context:
+    description: 'Build context directory'
+    required: false
+    default: '.'
+  build-args:
+    description: 'Newline-separated list of --build-arg values'
+    required: false
+    default: ''
+  local-image:
+    description: >
+      Reference to a pre-built local image to push instead of building.
+      When set, the build step is skipped entirely.  Useful when the caller
+      has a custom build process (e.g. `just container-build`).
+    required: false
+    default: ''
+  push:
+    description: 'Whether to push the image (set false for PR builds)'
+    required: false
+    default: 'true'
+  registry-login-env:
+    description: >
+      Set to "true" if you have already logged in to the registry.
+      Otherwise the action will attempt to log in using GITHUB_TOKEN.
+    required: false
+    default: 'false'
+  max-retries:
+    description: 'Number of push retries on transient failure'
+    required: false
+    default: '3'
+outputs:
+  digest:
+    description: 'The pushed image digest (sha256:...)'
+    value: ${{ steps.push.outputs.digest }}
+  local-image:
+    description: 'The local image reference that was built (or passed through)'
+    value: ${{ steps.build.outputs.local-image }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Login to GHCR
+      if: inputs.push == 'true' && inputs.registry-login-env == 'false'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        LOGIN_USER: ${{ github.actor }}
+        REGISTRY: ${{ inputs.image }}
+      run: |
+        set -euo pipefail
+        registry_host="${REGISTRY%%/*}"
+        echo "${GITHUB_TOKEN}" | podman login -u "${LOGIN_USER}" --password-stdin "${registry_host}"
+
+    - name: Build image
+      id: build
+      uses: actions/github-script@v7
+      env:
+        IMAGE: ${{ inputs.image }}
+        CONTAINERFILE: ${{ inputs.containerfile }}
+        CONTEXT: ${{ inputs.context }}
+        BUILD_ARGS: ${{ inputs.build-args }}
+        LOCAL_IMAGE_INPUT: ${{ inputs.local-image }}
+      with:
+        script: |
+          const { execFileSync } = require('child_process');
+
+          // If caller provided a pre-built image, just pass it through
+          if (process.env.LOCAL_IMAGE_INPUT) {
+            core.setOutput('local-image', process.env.LOCAL_IMAGE_INPUT);
+            core.info(`Using pre-built image: ${process.env.LOCAL_IMAGE_INPUT}`);
+            return;
+          }
+
+          const image = process.env.IMAGE;
+          const basename = image.split('/').pop();
+          const localImage = `localhost/${basename}:latest`;
+
+          const args = ['build', '-t', localImage, '-f', process.env.CONTAINERFILE];
+          for (const line of process.env.BUILD_ARGS.split('\n')) {
+            const arg = line.trim();
+            if (arg) args.push('--build-arg', arg);
+          }
+          args.push(process.env.CONTEXT);
+
+          core.info(`Running: podman ${args.join(' ')}`);
+          execFileSync('podman', args, { stdio: 'inherit' });
+
+          core.setOutput('local-image', localImage);
+
+    - name: Push by digest
+      id: push
+      if: inputs.push == 'true'
+      uses: actions/github-script@v7
+      env:
+        IMAGE: ${{ inputs.image }}
+        LOCAL_IMAGE: ${{ steps.build.outputs.local-image }}
+        ARCH: ${{ inputs.arch }}
+        MAX_RETRIES: ${{ inputs.max-retries }}
+        RUNNER_TEMP: ${{ runner.temp }}
+      with:
+        script: |
+          const { execFileSync } = require('child_process');
+          const fs = require('fs');
+          const path = require('path');
+
+          const image = process.env.IMAGE;
+          const localImage = process.env.LOCAL_IMAGE;
+          const arch = process.env.ARCH;
+          const maxRetries = process.env.MAX_RETRIES;
+
+          execFileSync('podman', ['tag', localImage, `${image}:latest`], { stdio: 'inherit' });
+
+          const digestfile = path.join(process.env.RUNNER_TEMP, 'push-digestfile');
+          execFileSync('podman', [
+            'push', '--retry', maxRetries, '--digestfile', digestfile, `${image}:latest`
+          ], { stdio: 'inherit' });
+
+          const digest = fs.readFileSync(digestfile, 'utf8').trim();
+
+          // Write digest artifact for create-manifest; filename encodes
+          // the arch so the manifest job can associate digests with platforms.
+          const artifactDir = path.join(process.env.RUNNER_TEMP, 'build-push-image', 'digests');
+          fs.mkdirSync(artifactDir, { recursive: true });
+          fs.writeFileSync(path.join(artifactDir, arch), digest);
+
+          core.info(`Pushed ${image}@${digest} (${arch})`);
+          core.setOutput('digest', digest);
+
+    - name: Upload digest artifact
+      if: inputs.push == 'true'
+      uses: actions/upload-artifact@v7
+      with:
+        name: container-digests-${{ inputs.arch }}
+        path: ${{ runner.temp }}/build-push-image/digests/*
+        if-no-files-found: error
+        retention-days: 1
