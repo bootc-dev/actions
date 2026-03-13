@@ -1,0 +1,56 @@
+name: Test actions (PR)
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test-bootc-ubuntu-setup:
+    name: Test bootc-ubuntu-setup
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run bootc-ubuntu-setup
+        uses: ./bootc-ubuntu-setup
+
+      - name: Verify setup
+        run: |
+          podman --version
+          just --version
+          test -n "$ARCH"
+
+  test-setup-rust:
+    name: Test setup-rust
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run setup-rust
+        uses: ./setup-rust
+
+      - name: Verify setup
+        run: |
+          rustc --version
+          cargo --version
+          cargo nextest --version
+
+  test-openssf-scorecard:
+    name: Test openssf-scorecard
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Run openssf-scorecard
+        uses: ./openssf-scorecard
+        with:
+          base-sha: ${{ github.event.pull_request.base.sha }}
+          head-sha: ${{ github.sha }}
