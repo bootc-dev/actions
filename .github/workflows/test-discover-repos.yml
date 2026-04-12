@@ -33,7 +33,7 @@ jobs:
           test-mode: 'true'
 
       - name: Validate output
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           MATRIX_JSON: ${{ steps.discover.outputs.matrix }}
         with:

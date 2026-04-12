@@ -94,7 +94,7 @@ runs:
 
     - name: Create and push manifest
       id: push-manifest
-      uses: actions/github-script@v8
+      uses: actions/github-script@v9
       env:
         IMAGE: ${{ inputs.image }}
         TAGS: ${{ inputs.tags }}

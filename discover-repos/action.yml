@@ -24,7 +24,7 @@ runs:
   steps:
     - name: Discover repositories
       id: discover
-      uses: actions/github-script@v8
+      uses: actions/github-script@v9
       env:
         ORGS_JSON: ${{ inputs.orgs }}
         TOKENS_JSON: ${{ inputs.tokens }}
