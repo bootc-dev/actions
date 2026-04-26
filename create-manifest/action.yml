@@ -168,7 +168,7 @@ runs:
 
     - name: Install Cosign
       if: inputs.cosign-key != ''
-      uses: sigstore/cosign-installer@v3
+      uses: sigstore/cosign-installer@v4.1.1
 
     - name: Sign manifest
       if: inputs.cosign-key != ''
