@@ -20,9 +20,11 @@ jobs:
 
       - name: Verify setup
         run: |
-          podman --version
           just --version
           test -n "$ARCH"
+
+      - name: Verify basic requirements
+        uses: ./.github/actions/verify-basic-requirements
 
   test-bootc-ubuntu-setup-2604:
     name: Test bootc-ubuntu-setup (26.04)
@@ -36,9 +38,11 @@ jobs:
 
       - name: Verify setup
         run: |
-          podman --version
           just --version
           test -n "$ARCH"
+
+      - name: Verify basic requirements
+        uses: ./.github/actions/verify-basic-requirements
 
       - name: Verify podman heredoc support
         shell: bash

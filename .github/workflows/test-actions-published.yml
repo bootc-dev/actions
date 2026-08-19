@@ -17,9 +17,11 @@ jobs:
 
       - name: Verify setup
         run: |
-          podman --version
           just --version
           test -n "$ARCH"
+
+      - name: Verify basic requirements
+        uses: bootc-dev/actions/.github/actions/verify-basic-requirements@main
 
   test-bootc-ubuntu-setup-2604:
     name: Test bootc-ubuntu-setup@main (26.04)
@@ -30,9 +32,11 @@ jobs:
 
       - name: Verify setup
         run: |
-          podman --version
           just --version
           test -n "$ARCH"
+
+      - name: Verify basic requirements
+        uses: bootc-dev/actions/.github/actions/verify-basic-requirements@main
 
   test-setup-rust:
     name: Test setup-rust@main
