@@ -1,0 +1,54 @@
+name: 'Compute CI Level'
+description: >
+  Determine which CI jobs to run based on event type, PR labels,
+  merge-queue status, and whether only documentation files changed.
+inputs:
+  token:
+    description: 'GitHub token for API access'
+    required: true
+  repository:
+    description: 'owner/repo (e.g. bootc-dev/bootc)'
+    required: true
+  event_name:
+    description: 'GitHub event name (pull_request, merge_group, etc.)'
+    required: true
+  pr_number:
+    description: 'Pull request number (only for pull_request events)'
+    required: false
+    default: ''
+  pr_labels:
+    description: 'JSON array of PR label names'
+    required: false
+    default: '[]'
+  package_os_full:
+    description: 'JSON array of OS targets for full package matrix'
+    required: false
+    default: '["fedora-43","fedora-44","fedora-45","centos-9","centos-10"]'
+  integration_os_full:
+    description: 'JSON array of OS targets for full integration matrix'
+    required: false
+    default: '["fedora-43","fedora-44","centos-9","centos-10"]'
+  upgrade_os_full:
+    description: 'JSON array of OS targets for full upgrade matrix'
+    required: false
+    default: '["fedora-44","centos-10"]'
+  tier1_os:
+    description: 'JSON array of OS targets for tier-1 only'
+    required: false
+    default: '["centos-10"]'
+outputs:
+  merge_queue_enabled:
+    description: 'Whether a merge queue rule is active for main'
+  docs_only:
+    description: 'Whether the PR only changes .md files'
+  run_heavy:
+    description: 'Whether heavy test jobs should run'
+  package_os_matrix:
+    description: 'JSON array of OS targets for package jobs'
+  integration_os_matrix:
+    description: 'JSON array of OS targets for integration jobs'
+  upgrade_os_matrix:
+    description: 'JSON array of OS targets for upgrade jobs'
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

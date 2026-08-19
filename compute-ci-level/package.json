@@ -1,0 +1,17 @@
+{
+  "name": "compute-ci-level",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "ncc build src/main.ts --license licenses.txt",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@actions/github": "^6.0.0"
+  },
+  "devDependencies": {
+    "@vercel/ncc": "^0.38.3",
+    "typescript": "^5.8.3"
+  }
+}
