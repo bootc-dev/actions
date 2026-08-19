@@ -39,50 +39,64 @@ runs:
           fi
         done
     # We really want support for heredocs
-    - name: Update podman and install just
+    - name: Install required packages
       shell: bash
       run: |
         set -eux
-        # Require the runner is ubuntu-24.04
         IDV=$(. /usr/lib/os-release && echo ${ID}-${VERSION_ID})
-        test "${IDV}" = "ubuntu-24.04"
-        # plucky is the next release. Historically we pointed straight at
-        # azure.archive.ubuntu.com, but that single Azure-regional mirror suffers
-        # chronic connection timeouts on GitHub Actions runners. This is a
-        # widespread, long-standing issue, not specific to us:
-        # https://github.com/actions/runner-images/issues/7048
-        # https://github.com/actions/runner-images/issues/12949
-        # https://github.com/orgs/community/discussions/205332
-        # A plain http(s) URL is a single endpoint as far as apt is concerned: if
-        # it's unreachable, apt just retries the *same* host rather than trying an
-        # alternative (only the mirror:/mirror+file: URI scheme gives apt genuine
-        # client-side fallback across multiple mirrors, per sources.list(5)). So
-        # reuse the mirrorlist-with-fallback that Ubuntu's own cloud-init already
-        # sets up for the base OS sources on these runners (Azure mirror first,
-        # falling back to the global archive), instead of hardcoding one host with
-        # no fallback at all. Fall back to the plain global archive if that
-        # mirrorlist isn't present, e.g. on a non-standard runner.
-        # Non-amd64 architectures (e.g. arm64) use ports.ubuntu.com/ubuntu-ports,
-        # which isn't affected by this since it has no azure-specific variant.
-        if [ "$(dpkg --print-architecture)" = "amd64" ]; then
-          if [ -f /etc/apt/apt-mirrors.txt ]; then
-            mirror="mirror+file:/etc/apt/apt-mirrors.txt"
-          else
-            mirror="http://archive.ubuntu.com/ubuntu"
-          fi
-        else
-          mirror="http://ports.ubuntu.com/ubuntu-ports"
-        fi
-        echo "deb ${mirror} plucky universe main" | sudo tee /etc/apt/sources.list.d/plucky.list
-        # Raise apt retries slightly above the compiled-in default of 3 to tolerate
-        # transient network blips (covers ~2-3 min of cumulative retry delay with
-        # apt's exponential backoff, capped at 30s/attempt). This used to be set to
-        # 35 (~15 min) specifically to ride out azure.archive.ubuntu.com outages;
-        # now that we no longer use that mirror, a much smaller value suffices.
-        echo 'Acquire::Retries "5";' | sudo tee /etc/apt/apt.conf.d/80-retries
-        /bin/time -f '%E %C' sudo apt update
-        # skopeo is currently older in plucky for some reason hence --allow-downgrades
-        /bin/time -f '%E %C' sudo apt install -y --allow-downgrades crun/plucky buildah/plucky podman/plucky skopeo/plucky just
+        case "${IDV}" in
+          ubuntu-24.04)
+            # 24.04's podman is too old (no heredoc support, manifest bugs);
+            # pull newer packages from plucky (25.04).
+            # plucky is the next release. Historically we pointed straight at
+            # azure.archive.ubuntu.com, but that single Azure-regional mirror suffers
+            # chronic connection timeouts on GitHub Actions runners. This is a
+            # widespread, long-standing issue, not specific to us:
+            # https://github.com/actions/runner-images/issues/7048
+            # https://github.com/actions/runner-images/issues/12949
+            # https://github.com/orgs/community/discussions/205332
+            # A plain http(s) URL is a single endpoint as far as apt is concerned: if
+            # it's unreachable, apt just retries the *same* host rather than trying an
+            # alternative (only the mirror:/mirror+file: URI scheme gives apt genuine
+            # client-side fallback across multiple mirrors, per sources.list(5)). So
+            # reuse the mirrorlist-with-fallback that Ubuntu's own cloud-init already
+            # sets up for the base OS sources on these runners (Azure mirror first,
+            # falling back to the global archive), instead of hardcoding one host with
+            # no fallback at all. Fall back to the plain global archive if that
+            # mirrorlist isn't present, e.g. on a non-standard runner.
+            # Non-amd64 architectures (e.g. arm64) use ports.ubuntu.com/ubuntu-ports,
+            # which isn't affected by this since it has no azure-specific variant.
+            if [ "$(dpkg --print-architecture)" = "amd64" ]; then
+              if [ -f /etc/apt/apt-mirrors.txt ]; then
+                mirror="mirror+file:/etc/apt/apt-mirrors.txt"
+              else
+                mirror="http://archive.ubuntu.com/ubuntu"
+              fi
+            else
+              mirror="http://ports.ubuntu.com/ubuntu-ports"
+            fi
+            echo "deb ${mirror} plucky universe main" | sudo tee /etc/apt/sources.list.d/plucky.list
+            # Raise apt retries slightly above the compiled-in default of 3 to tolerate
+            # transient network blips (covers ~2-3 min of cumulative retry delay with
+            # apt's exponential backoff, capped at 30s/attempt). This used to be set to
+            # 35 (~15 min) specifically to ride out azure.archive.ubuntu.com outages;
+            # now that we no longer use that mirror, a much smaller value suffices.
+            echo 'Acquire::Retries "5";' | sudo tee /etc/apt/apt.conf.d/80-retries
+            /bin/time -f '%E %C' sudo apt update
+            # skopeo is currently older in plucky for some reason hence --allow-downgrades
+            /bin/time -f '%E %C' sudo apt install -y --allow-downgrades crun/plucky buildah/plucky podman/plucky skopeo/plucky just
+            ;;
+          ubuntu-26.04)
+            # 26.04 ships a sufficiently modern podman with heredoc support;
+            # no PPA or package upgrades needed — just install extras.
+            /bin/time -f '%E %C' sudo apt update
+            /bin/time -f '%E %C' sudo apt install -y just
+            ;;
+          *)
+            echo "Unsupported runner: ${IDV}" >&2
+            exit 1
+            ;;
+        esac
     # This is the default on e.g. Fedora derivatives, but not Debian.
     # Only needed when libvirt/virtualization is requested.
     - name: Enable unprivileged /dev/kvm access

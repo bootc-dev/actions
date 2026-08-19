@@ -24,6 +24,37 @@ jobs:
           just --version
           test -n "$ARCH"
 
+  test-bootc-ubuntu-setup-2604:
+    name: Test bootc-ubuntu-setup (26.04)
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run bootc-ubuntu-setup
+        uses: ./bootc-ubuntu-setup
+
+      - name: Verify setup
+        run: |
+          podman --version
+          just --version
+          test -n "$ARCH"
+
+      - name: Verify podman heredoc support
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir=$(mktemp -d)
+          cat > "${dir}/Containerfile" <<'CEOF'
+          FROM docker.io/library/alpine:latest
+          RUN <<EOF
+          echo "heredoc works" > /heredoc-test.txt
+          EOF
+          CEOF
+          podman build -t localhost/heredoc-test:latest -f "${dir}/Containerfile" "${dir}"
+          result="$(podman run --rm localhost/heredoc-test:latest cat /heredoc-test.txt)"
+          test "${result}" = "heredoc works"
+
   test-setup-rust:
     name: Test setup-rust
     runs-on: ubuntu-latest
