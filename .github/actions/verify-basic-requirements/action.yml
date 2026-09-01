@@ -1,0 +1,25 @@
+name: 'Verify basic requirements'
+description: 'Internal test helper: verify podman and the runner default Rust/Go toolchains still work'
+runs:
+  using: 'composite'
+  steps:
+    - name: Verify podman works
+      shell: bash
+      run: |
+        set -euo pipefail
+        podman --version
+        result="$(podman run --rm docker.io/library/alpine:latest echo podman-ok)"
+        test "${result}" = "podman-ok"
+
+    - name: Verify default Rust toolchain works
+      shell: bash
+      run: |
+        set -euo pipefail
+        rustc --version
+        cargo --version
+
+    - name: Verify default Go toolchain works
+      shell: bash
+      run: |
+        set -euo pipefail
+        go version
