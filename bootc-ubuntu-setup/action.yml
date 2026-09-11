@@ -123,8 +123,10 @@ runs:
       shell: bash
       run: |
         set -xeuo pipefail
+        # Let libvirt select its QEMU dependency; qemu-kvm has ambiguous
+        # providers on Ubuntu 26.04 when requested explicitly.
         # see https://github.com/bootc-dev/bcvk/issues/176
-        /bin/time -f '%E %C' sudo apt install -y libkrb5-dev pkg-config libvirt-dev genisoimage qemu-utils qemu-kvm virtiofsd libvirt-daemon-system python3-virt-firmware
+        /bin/time -f '%E %C' sudo apt install -y libkrb5-dev pkg-config libvirt-dev genisoimage qemu-utils virtiofsd libvirt-daemon-system python3-virt-firmware
 
     # bcvk requires KVM and v0.19.0 has no arm64 release asset.
     - name: Install bcvk

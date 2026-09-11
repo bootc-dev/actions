@@ -19,11 +19,15 @@ jobs:
         include:
           - runner: ubuntu-24.04
             architecture: amd64
-            name: amd64 virtiofs (KVM required)
+            name: Ubuntu 24.04 amd64 virtiofs (KVM required)
             full_vm_smoke: true
           - runner: ubuntu-24.04-arm
             architecture: arm64
-            name: arm64 QEMU startup (TCG)
+            name: Ubuntu 24.04 arm64 QEMU startup (TCG)
+            full_vm_smoke: false
+          - runner: ubuntu-26.04
+            architecture: amd64
+            name: Ubuntu 26.04 amd64 QEMU startup (TCG)
             full_vm_smoke: false
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
@@ -47,6 +51,7 @@ jobs:
           set -euo pipefail
           qemu="qemu-system-$(uname -m)"
           "$qemu" --version
+          dpkg-query -S "$(command -v "$qemu")"
           if [ "$(uname -m)" = x86_64 ]; then
             machine=q35
           else
@@ -145,7 +150,7 @@ jobs:
         if: ${{ always() && steps.qemu.outputs.full_vm_smoke == 'true' }}
         uses: actions/upload-artifact@v7
         with:
-          name: qemu-virtiofs-smoke-${{ matrix.architecture }}
+          name: qemu-virtiofs-smoke-${{ matrix.runner }}-${{ matrix.architecture }}
           path: |
             ${{ runner.temp }}/qemu-smoke
             ${{ runner.temp }}/image-digest.txt
