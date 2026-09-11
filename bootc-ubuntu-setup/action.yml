@@ -8,6 +8,14 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: Capture initial runner OS
+      id: runner_os
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Apt may upgrade base-files and rewrite /usr/lib/os-release later.
+        idv=$(. /usr/lib/os-release && printf '%s-%s' "$ID" "$VERSION_ID")
+        printf 'idv=%s\n' "$idv" >> "$GITHUB_OUTPUT"
     # The default runners have TONS of crud on them...
     - name: Free up disk space on runner
       shell: bash
@@ -41,10 +49,12 @@ runs:
     # We really want support for heredocs
     - name: Install required packages
       shell: bash
+      env:
+        INITIAL_RUNNER_OS: ${{ steps.runner_os.outputs.idv }}
       run: |
         set -eux
-        IDV=$(. /usr/lib/os-release && echo ${ID}-${VERSION_ID})
-        case "${IDV}" in
+        # Use the value captured before apt could replace base-files.
+        case "$INITIAL_RUNNER_OS" in
           ubuntu-24.04)
             # 24.04's podman is too old (no heredoc support, manifest bugs);
             # pull newer packages from plucky (25.04).
@@ -93,7 +103,7 @@ runs:
             /bin/time -f '%E %C' sudo apt install -y just
             ;;
           *)
-            echo "Unsupported runner: ${IDV}" >&2
+            echo "Unsupported runner: ${INITIAL_RUNNER_OS}" >&2
             exit 1
             ;;
         esac
@@ -156,11 +166,12 @@ runs:
     - name: Install fixed QEMU from Ubuntu Resolute
       if: ${{ inputs.libvirt == 'true' }}
       shell: bash
+      env:
+        INITIAL_RUNNER_OS: ${{ steps.runner_os.outputs.idv }}
       run: |
         set -xeuo pipefail
-        idv=$(. /usr/lib/os-release && printf '%s-%s' "$ID" "$VERSION_ID")
-        if [ "$idv" != ubuntu-24.04 ]; then
-          printf 'Skipping Resolute QEMU setup on %s\n' "$idv"
+        if [ "$INITIAL_RUNNER_OS" != ubuntu-24.04 ]; then
+          printf 'Skipping Resolute QEMU setup on %s\n' "$INITIAL_RUNNER_OS"
           exit 0
         fi
         case "$(dpkg --print-architecture)" in
