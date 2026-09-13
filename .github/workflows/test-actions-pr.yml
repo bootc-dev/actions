@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-26.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Run bootc-ubuntu-setup
         uses: ./bootc-ubuntu-setup
