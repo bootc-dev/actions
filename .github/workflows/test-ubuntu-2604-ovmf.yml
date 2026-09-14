@@ -1,0 +1,46 @@
+name: Test Ubuntu 26.04 generic OVMF selection
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  libvirt:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Run bootc-ubuntu-setup
+        uses: ./bootc-ubuntu-setup
+        with:
+          libvirt: true
+
+      - name: Verify generic OVMF package state
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(dpkg-query -W -f='${db:Status-Abbrev}' ovmf-generic)" = 'ii '
+          test "$(dpkg-query -W -f='${db:Status-Abbrev}' ovmf-amdsev 2>/dev/null || true)" != 'ii '
+          test ! -e /usr/share/qemu/firmware/60-edk2-x86_64-amdsev.json
+          for package in qemu-block-extra qemu-system-gui; do
+            test "$(dpkg-query -W -f='${db:Status-Abbrev}' "${package}")" = 'ii '
+            dpkg-query -W -f='${Package} ${Version} ${db:Status-Abbrev}\n' "${package}"
+          done
+          dpkg-query -W -f='${Package} ${Version} ${db:Status-Abbrev}\n' ovmf-generic
+          printf '%s\n' 'ovmf-amdsev is absent and its AMD-SEV descriptor is absent'
+
+      - name: Check OVMF smoke script syntax
+        run: node --check .github/scripts/ubuntu-2604-ovmf-smoke.mjs
+
+      - name: Probe CentOS Stream 10 libvirt conversion and SSH
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RUST_LOG: bcvk=debug
+          VM_NAME: actions-ovmf-${{ github.run_id }}
+        run: node .github/scripts/ubuntu-2604-ovmf-smoke.mjs

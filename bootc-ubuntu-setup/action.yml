@@ -123,10 +123,23 @@ runs:
       shell: bash
       run: |
         set -xeuo pipefail
+        idv=$(. /usr/lib/os-release && printf '%s-%s' "$ID" "$VERSION_ID")
+        firmware_packages=()
+        if [ "$idv" = ubuntu-26.04 ]; then
+          # Unsealed bootc tests request bcvk's uefi-insecure mode:
+          # https://github.com/bootc-dev/bootc/blob/12f03a042b868f40ec850c2496babda1d66775d5/crates/xtask/src/bcvk.rs#L113-L120
+          # This becomes a libvirt secure=no firmware request. Resolute's
+          # stateless AMD-SEV descriptor satisfies that request and may win
+          # auto-selection, but without NVRAM it cannot restore the installed
+          # GRUB boot entry. Keep generic OVMF and the other recommendations
+          # while removing that descriptor by excluding its package.
+          # https://libvirt.org/formatdomain.html#guest-firmware
+          firmware_packages=(ovmf-generic ovmf-amdsev-)
+        fi
         # Let libvirt select its QEMU dependency; qemu-kvm has ambiguous
         # providers on Ubuntu 26.04 when requested explicitly.
         # see https://github.com/bootc-dev/bcvk/issues/176
-        /bin/time -f '%E %C' sudo apt install -y libkrb5-dev pkg-config libvirt-dev genisoimage qemu-utils virtiofsd libvirt-daemon-system python3-virt-firmware
+        /bin/time -f '%E %C' sudo apt install -y libkrb5-dev pkg-config libvirt-dev genisoimage qemu-utils virtiofsd libvirt-daemon-system python3-virt-firmware "${firmware_packages[@]}"
 
     # bcvk requires KVM and v0.19.0 has no arm64 release asset.
     - name: Install bcvk
