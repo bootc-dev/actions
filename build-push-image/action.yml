@@ -4,7 +4,7 @@
 # images into a multi-arch manifest list afterwards.
 #
 # Prerequisites:
-#   Use bootc-dev/actions/bootc-ubuntu-setup first to get an up-to-date
+#   Use bootc-dev/actions/bootc-host-setup first to get an up-to-date
 #   podman.  The version shipped with ubuntu-24.04 is too old and has
 #   known bugs with manifest handling and push-by-digest.
 #
@@ -22,7 +22,7 @@
 #   runs-on: ${{ matrix.runner }}
 #   steps:
 #     - uses: actions/checkout@v6
-#     - uses: bootc-dev/actions/bootc-ubuntu-setup@main
+#     - uses: bootc-dev/actions/bootc-host-setup@main
 #     - uses: bootc-dev/actions/build-push-image@main
 #       with:
 #         image: ghcr.io/${{ github.repository }}

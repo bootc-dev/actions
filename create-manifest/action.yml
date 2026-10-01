@@ -2,7 +2,7 @@
 # multi-arch manifest list and push it with the desired tags.
 #
 # Prerequisites:
-#   Use bootc-dev/actions/bootc-ubuntu-setup first to get an up-to-date
+#   Use bootc-dev/actions/bootc-host-setup first to get an up-to-date
 #   podman.  The version shipped with ubuntu-24.04 is too old and has
 #   known bugs with manifest handling.
 #
@@ -16,7 +16,7 @@
 #     needs: build
 #     runs-on: ubuntu-24.04
 #     steps:
-#       - uses: bootc-dev/actions/bootc-ubuntu-setup@main
+#       - uses: bootc-dev/actions/bootc-host-setup@main
 #       - uses: docker/metadata-action@v5
 #         id: meta
 #         with:

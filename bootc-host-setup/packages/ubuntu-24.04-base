@@ -1,0 +1,5 @@
+# Ubuntu 24.04 takes these from the temporary Plucky source.
+crun
+buildah
+podman
+skopeo

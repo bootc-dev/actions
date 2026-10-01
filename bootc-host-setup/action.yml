@@ -1,5 +1,5 @@
-name: 'Bootc Ubuntu Setup (deprecated)'
-description: 'Deprecated compatibility entry point; use bootc-host-setup'
+name: 'Bootc Host Setup'
+description: 'Set up a supported GitHub-hosted bootc build host'
 inputs:
   libvirt:
     description: 'Install libvirt and virtualization stack'
@@ -12,14 +12,14 @@ runs:
       shell: bash
       env:
         BOOTC_HOST_LIBVIRT: ${{ inputs.libvirt }}
-      run: bash "${GITHUB_ACTION_PATH}/../bootc-host-setup/ci/install-deps.sh"
+      run: bash "${GITHUB_ACTION_PATH}/ci/install-deps.sh"
     - name: Apply host workarounds
       shell: bash
       env:
         BOOTC_HOST_LIBVIRT: ${{ inputs.libvirt }}
-      run: bash "${GITHUB_ACTION_PATH}/../bootc-host-setup/ci/workarounds.sh"
+      run: bash "${GITHUB_ACTION_PATH}/ci/workarounds.sh"
     - name: Test host environment
       shell: bash
       env:
         BOOTC_HOST_LIBVIRT: ${{ inputs.libvirt }}
-      run: bash "${GITHUB_ACTION_PATH}/../bootc-host-setup/ci/test-environment.sh"
+      run: bash "${GITHUB_ACTION_PATH}/ci/test-environment.sh"

@@ -1,0 +1,14 @@
+libvirt-client
+libvirt-daemon
+libvirt-devel
+libvirt-daemon-driver-qemu
+libvirt-daemon-driver-storage-core
+qemu-kvm-core
+qemu-img
+edk2-ovmf
+virtiofsd
+dbus-daemon
+acl
+swtpm
+swtpm-tools
+python3-virt-firmware

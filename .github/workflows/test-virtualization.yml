@@ -3,7 +3,7 @@ name: Test virtualization setup
 on:
   pull_request:
     paths:
-      - bootc-ubuntu-setup/action.yml
+      - bootc-host-setup/**
       - .github/workflows/test-virtualization.yml
   workflow_dispatch:
 
@@ -38,7 +38,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Ubuntu host
-        uses: ./bootc-ubuntu-setup
+        uses: ./bootc-host-setup
         with:
           libvirt: true
 

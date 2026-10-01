@@ -42,7 +42,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Setup host
-        uses: ./bootc-ubuntu-setup
+        uses: ./bootc-host-setup
 
       - name: Create test Containerfile
         shell: bash
@@ -74,7 +74,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Setup host
-        uses: ./bootc-ubuntu-setup
+        uses: ./bootc-host-setup
 
       - name: Extract metadata
         id: meta

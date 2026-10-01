@@ -1,0 +1,8 @@
+libkrb5-dev
+pkg-config
+libvirt-dev
+genisoimage
+qemu-utils
+virtiofsd
+libvirt-daemon-system
+python3-virt-firmware

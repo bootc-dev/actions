@@ -16,8 +16,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Run bootc-ubuntu-setup
-        uses: ./bootc-ubuntu-setup
+      - name: Run bootc-host-setup
+        uses: ./bootc-host-setup
         with:
           libvirt: true
 

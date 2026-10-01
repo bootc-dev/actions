@@ -1,0 +1,2 @@
+# Generic OVMF is needed for bcvk's insecure UEFI mode.
+ovmf-generic
