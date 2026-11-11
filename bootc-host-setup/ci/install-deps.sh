@@ -42,7 +42,7 @@ ubuntu_mirror() {
   if [ "$(dpkg --print-architecture)" = amd64 ]; then
     [ -f /etc/apt/apt-mirrors.txt ] && printf '%s' 'mirror+file:/etc/apt/apt-mirrors.txt' || printf '%s' 'http://archive.ubuntu.com/ubuntu'
   else
-    printf '%s' 'http://ports.ubuntu.com/ubuntu-ports'
+    [ -f /etc/apt/apt-mirrors-ports.txt ] && printf '%s' 'mirror+file:/etc/apt/apt-mirrors-ports.txt' || printf '%s' 'http://ports.ubuntu.com/ubuntu-ports'
   fi
 }
 
@@ -62,9 +62,39 @@ install_bcvk() {
   printf 'LIBVIRT_DEFAULT_URI=qemu:///session\n' >> "$GITHUB_ENV"
 }
 
+# Every Ubuntu mirror the runner lists is an ubuntu.com name, so Canonical's
+# DNS outage of 2026-11-11 failed every apt install. These mirror the same
+# signed archive outside Canonical's DNS, and apt still checks them against
+# the Ubuntu keys; at lower priorities it tries them only after the
+# runner's own mirrors. The first is Azure's load balancer behind
+# azure.archive.ubuntu.com, resolved by Azure DNS (http only). On resolute
+# arm64 is in the main archive; older arm64 images write ports.ubuntu.com
+# straight into their sources, so those get a mirror list of their own.
+add_fallback_mirrors() {
+  local mirrors=/etc/apt/apt-mirrors.txt ports=/etc/apt/apt-mirrors-ports.txt sources
+  if [ -f "$mirrors" ] && grep -qE '^https?://(archive|security)\.ubuntu\.com/ubuntu' "$mirrors" &&
+    ! grep -q 'mirrors\.edge\.kernel\.org' "$mirrors"; then
+    printf '%s\tpriority:%s\n' \
+      http://cloud-mirror-lb.eastus.cloudapp.azure.com/ubuntu/ 4 \
+      https://mirror.math.princeton.edu/pub/ubuntu/ 5 \
+      https://mirrors.edge.kernel.org/ubuntu/ 6 \
+      https://mirror.csclub.uwaterloo.ca/ubuntu/ 7 | sudo tee -a "$mirrors" >/dev/null
+  fi
+  for sources in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
+    if [ -f "$sources" ] && grep -q 'http://ports\.ubuntu\.com/ubuntu-ports' "$sources"; then
+      printf '%s\tpriority:%s\n' \
+        http://ports.ubuntu.com/ubuntu-ports/ 1 \
+        https://mirror.csclub.uwaterloo.ca/ubuntu-ports/ 2 \
+        https://mirrors.mit.edu/ubuntu-ports/ 3 | sudo tee "$ports" >/dev/null
+      sudo sed -i -E "s,http://ports\.ubuntu\.com/ubuntu-ports/?,mirror+file:${ports},g" "$sources"
+    fi
+  done
+}
+
 install_ubuntu() {
   local -a packages=()
   free_ubuntu_disk
+  add_fallback_mirrors
   if [ "$VERSION_ID" = 24.04 ]; then
     printf 'deb %s plucky universe main\n' "$(ubuntu_mirror)" | sudo tee /etc/apt/sources.list.d/plucky.list >/dev/null
     printf '%s\n' 'Acquire::Retries "5";' | sudo tee /etc/apt/apt.conf.d/80-retries >/dev/null
