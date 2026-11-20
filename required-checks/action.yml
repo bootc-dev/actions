@@ -1,0 +1,26 @@
+name: 'Required checks'
+description: 'Sentinel job which fails if any job it depends on fails'
+inputs:
+  needs:
+    description: 'toJson(needs) from the calling job'
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    - name: Check required jobs
+      shell: bash
+      env:
+        NEEDS: ${{ inputs.needs }}
+      run: |
+        set -euo pipefail
+
+        # A calling job with no needs key produces an empty needs map, which
+        # would silently gate nothing. Error out instead of passing.
+        echo "$NEEDS" | jq -e 'to_entries | length > 0' >/dev/null \
+          || { echo "error: needs input is invalid - must contain 1 or more jobs"; exit 1; }
+
+        FAILED=$(echo "$NEEDS" | jq -r 'to_entries[] | select(.value.result | IN("success","skipped") | not) | .key')
+        if [ -n "$FAILED" ]; then
+          echo "The following jobs did not succeed: $FAILED"
+          exit 1
+        fi

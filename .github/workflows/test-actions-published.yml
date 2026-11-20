@@ -65,3 +65,41 @@ jobs:
         with:
           base-sha: ${{ github.event.before }}
           head-sha: ${{ github.sha }}
+
+  test-required-checks:
+    name: Test required-checks@main
+    runs-on: ubuntu-slim
+    if: always()
+    needs: [test-setup-rust, test-bootc-host-setup]
+    steps:
+      - name: Run required-checks (needed jobs succeeded)
+        uses: bootc-dev/actions/required-checks@main
+        with:
+          needs: ${{ toJson(needs) }}
+
+      - name: Run required-checks (needed job failed)
+        id: failed
+        continue-on-error: true
+        uses: bootc-dev/actions/required-checks@main
+        with:
+          needs: '{"test-job":{"result":"failure","outputs":{}}}'
+
+      - name: Run required-checks (needed job skipped)
+        id: skipped
+        continue-on-error: true
+        uses: bootc-dev/actions/required-checks@main
+        with:
+          needs: '{"test-job":{"result":"skipped","outputs":{}}}'
+
+      - name: Run required-checks (no needed jobs)
+        id: empty
+        continue-on-error: true
+        uses: bootc-dev/actions/required-checks@main
+        with:
+          needs: '{}'
+
+      - name: Verify outcomes
+        run: |
+          test "${{ steps.failed.outcome }}" = "failure"
+          test "${{ steps.skipped.outcome }}" = "success"
+          test "${{ steps.empty.outcome }}" = "failure"
