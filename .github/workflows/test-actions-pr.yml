@@ -10,7 +10,7 @@ permissions:
 jobs:
   test-bootc-host-setup:
     name: Test bootc-host-setup
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -81,7 +81,7 @@ jobs:
 
   test-bootc-ubuntu-setup-compatibility:
     name: Test bootc-ubuntu-setup compatibility entry point
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - uses: ./bootc-ubuntu-setup
@@ -102,7 +102,7 @@ jobs:
 
   test-bootc-host-setup-scripts:
     name: Test bootc-host-setup scripts
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - run: bash test/bootc-host-setup.sh
